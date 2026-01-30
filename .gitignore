@@ -1,0 +1,5 @@
+# add logs and backup files
+master/log/*
+master/backup/*
+slave/log/*
+slave/backup/*
