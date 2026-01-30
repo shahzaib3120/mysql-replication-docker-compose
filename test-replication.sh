@@ -13,21 +13,35 @@ echo -e "${BLUE}========================================${NC}\n"
 
 # Function to check replication status
 check_replication_status() {
-    SLAVE_STATUS=$(docker exec -i mysql-slave mysql -uroot -pmysql -e "SHOW SLAVE STATUS\G")
-    IO_RUNNING=$(echo "$SLAVE_STATUS" | grep "Slave_IO_Running:" | awk '{print $2}')
-    SQL_RUNNING=$(echo "$SLAVE_STATUS" | grep "Slave_SQL_Running:" | awk '{print $2}')
-    SECONDS_BEHIND=$(echo "$SLAVE_STATUS" | grep "Seconds_Behind_Master:" | awk '{print $2}')
+    # Use -N (no column names) and -s (silent) for cleaner output
+    IO_RUNNING=$(docker exec mysql-slave mysql -uroot -pmysql -sN -e "SELECT SERVICE_STATE FROM performance_schema.replication_connection_status WHERE CHANNEL_NAME='';" 2>/dev/null)
+    SQL_RUNNING=$(docker exec mysql-slave mysql -uroot -pmysql -sN -e "SELECT SERVICE_STATE FROM performance_schema.replication_applier_status WHERE CHANNEL_NAME='';" 2>/dev/null)
+    
+    # Fallback to SHOW REPLICA STATUS if performance_schema queries fail
+    if [ -z "$IO_RUNNING" ] || [ -z "$SQL_RUNNING" ]; then
+        SLAVE_STATUS=$(docker exec mysql-slave mysql -uroot -pmysql -e "SHOW REPLICA STATUS\G" 2>/dev/null || docker exec mysql-slave mysql -uroot -pmysql -e "SHOW SLAVE STATUS\G" 2>/dev/null)
+        IO_RUNNING=$(echo "$SLAVE_STATUS" | grep -E "Replica_IO_Running:|Slave_IO_Running:" | awk '{print $2}')
+        SQL_RUNNING=$(echo "$SLAVE_STATUS" | grep -E "Replica_SQL_Running:|Slave_SQL_Running:" | awk '{print $2}')
+        SECONDS_BEHIND=$(echo "$SLAVE_STATUS" | grep -E "Seconds_Behind_Source:|Seconds_Behind_Master:" | awk '{print $2}')
+    else
+        # Get seconds behind from performance_schema
+        SECONDS_BEHIND=$(docker exec mysql-slave mysql -uroot -pmysql -sN -e "SELECT COUNT_TRANSACTIONS_IN_QUEUE FROM performance_schema.replication_connection_status WHERE CHANNEL_NAME='';" 2>/dev/null)
+    fi
+    
+    # Convert ON to Yes for consistency
+    [ "$IO_RUNNING" = "ON" ] && IO_RUNNING="Yes"
+    [ "$SQL_RUNNING" = "ON" ] && SQL_RUNNING="Yes"
     
     if [ "$IO_RUNNING" = "Yes" ] && [ "$SQL_RUNNING" = "Yes" ]; then
         echo -e "${GREEN}✓ Replication is running${NC}"
-        echo -e "  Slave_IO_Running: ${GREEN}$IO_RUNNING${NC}"
-        echo -e "  Slave_SQL_Running: ${GREEN}$SQL_RUNNING${NC}"
-        echo -e "  Seconds_Behind_Master: ${GREEN}$SECONDS_BEHIND${NC}\n"
+        echo -e "  Replica_IO_Running: ${GREEN}$IO_RUNNING${NC}"
+        echo -e "  Replica_SQL_Running: ${GREEN}$SQL_RUNNING${NC}"
+        echo -e "  Seconds_Behind_Source: ${GREEN}$SECONDS_BEHIND${NC}\n"
         return 0
     else
         echo -e "${RED}✗ Replication is NOT running${NC}"
-        echo -e "  Slave_IO_Running: ${RED}$IO_RUNNING${NC}"
-        echo -e "  Slave_SQL_Running: ${RED}$SQL_RUNNING${NC}\n"
+        echo -e "  Replica_IO_Running: ${RED}$IO_RUNNING${NC}"
+        echo -e "  Replica_SQL_Running: ${RED}$SQL_RUNNING${NC}\n"
         return 1
     fi
 }
@@ -119,10 +133,11 @@ compare_data "demo"
 # Test 6: Check binary log position
 echo -e "${YELLOW}Test 6: Checking binary log positions...${NC}"
 echo -e "${BLUE}Master status:${NC}"
-docker exec -i mysql-master mysql -uroot -pmysql -e "SHOW MASTER STATUS\G"
+docker exec mysql-master mysql -uroot -pmysql -e "SHOW MASTER STATUS\G" 2>/dev/null
 
-echo -e "${BLUE}Slave status (relevant fields):${NC}"
-docker exec -i mysql-slave mysql -uroot -pmysql -e "SHOW SLAVE STATUS\G" | grep -E "(Master_Log_File|Read_Master_Log_Pos|Exec_Master_Log_Pos|Seconds_Behind_Master)"
+echo -e "${BLUE}Replica status (relevant fields):${NC}"
+docker exec mysql-slave mysql -uroot -pmysql -e "SHOW REPLICA STATUS\G" 2>/dev/null | grep -E "(Source_Log_File|Master_Log_File|Read_Source_Log_Pos|Read_Master_Log_Pos|Exec_Source_Log_Pos|Exec_Master_Log_Pos|Seconds_Behind_Source|Seconds_Behind_Master)" || \
+docker exec mysql-slave mysql -uroot -pmysql -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep -E "(Source_Log_File|Master_Log_File|Read_Source_Log_Pos|Read_Master_Log_Pos|Exec_Source_Log_Pos|Exec_Master_Log_Pos|Seconds_Behind_Source|Seconds_Behind_Master)"
 
 # Test 7: Check server IDs
 echo -e "${YELLOW}Test 7: Verifying server IDs are different...${NC}"

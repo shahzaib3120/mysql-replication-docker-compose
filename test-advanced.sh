@@ -57,10 +57,11 @@ docker exec -i mysql-slave bash -c "ls -lh /var/log/mysql/mysql-relay-bin.*" 2>/
 # Test 3: Replication filters test
 echo -e "${YELLOW}Test 3: Testing replication filters...${NC}"
 echo -e "${BLUE}Master replication filters:${NC}"
-docker exec -i mysql-master mysql -uroot -pmysql -e "SHOW MASTER STATUS\G" | grep -E "(Binlog_Do_DB|Binlog_Ignore_DB)"
+docker exec mysql-master mysql -uroot -pmysql -e "SHOW MASTER STATUS\G" 2>/dev/null | grep -E "(Binlog_Do_DB|Binlog_Ignore_DB)"
 
 echo -e "${BLUE}Slave replication filters:${NC}"
-docker exec -i mysql-slave mysql -uroot -pmysql -e "SHOW SLAVE STATUS\G" | grep -E "(Replicate_Do_DB|Replicate_Ignore_DB|Replicate_Do_Table|Replicate_Ignore_Table)"
+docker exec mysql-slave mysql -uroot -pmysql -e "SHOW REPLICA STATUS\G" 2>/dev/null | grep -E "(Replicate_Do_DB|Replicate_Ignore_DB|Replicate_Do_Table|Replicate_Ignore_Table)" || \
+docker exec mysql-slave mysql -uroot -pmysql -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep -E "(Replicate_Do_DB|Replicate_Ignore_DB|Replicate_Do_Table|Replicate_Ignore_Table)"
 
 # Test 4: Test non-replicated database
 echo -e "${YELLOW}Test 4: Testing non-replicated database (should NOT replicate)...${NC}"
@@ -107,15 +108,15 @@ fi
 
 # Test 6: Replication error recovery simulation
 echo -e "${YELLOW}Test 6: Testing replication status monitoring...${NC}"
-SLAVE_STATUS=$(docker exec -i mysql-slave mysql -uroot -pmysql -e "SHOW SLAVE STATUS\G")
+SLAVE_STATUS=$(docker exec mysql-slave mysql -uroot -pmysql -e "SHOW REPLICA STATUS\G" 2>/dev/null || docker exec mysql-slave mysql -uroot -pmysql -e "SHOW SLAVE STATUS\G" 2>/dev/null)
 
 echo -e "${BLUE}Key replication metrics:${NC}"
-echo "$SLAVE_STATUS" | grep -E "(Slave_IO_Running|Slave_SQL_Running|Seconds_Behind_Master|Last_IO_Error|Last_SQL_Error)" | while read line; do
+echo "$SLAVE_STATUS" | grep -E "(Replica_IO_Running|Slave_IO_Running|Replica_SQL_Running|Slave_SQL_Running|Seconds_Behind_Source|Seconds_Behind_Master|Last_IO_Error|Last_SQL_Error)" | while read line; do
     if echo "$line" | grep -q "Running: Yes"; then
         echo -e "${GREEN}$line${NC}"
     elif echo "$line" | grep -q "Running: No"; then
         echo -e "${RED}$line${NC}"
-    elif echo "$line" | grep -q "Seconds_Behind_Master: 0"; then
+    elif echo "$line" | grep -qE "Seconds_Behind_(Source|Master): 0"; then
         echo -e "${GREEN}$line${NC}"
     else
         echo -e "${BLUE}$line${NC}"

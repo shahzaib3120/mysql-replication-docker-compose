@@ -1,13 +1,13 @@
 services:
   mysql-master:
-    image: "mysql:5.6"
+    image: "mysql:latest"
     platform: linux/amd64
     hostname: "master"
     container_name: "mysql-master"
     ports:
-      - "3306"
+      - "3306:3306"
     volumes:
-      - $PWD/master/conf.d:/etc/mysql/mysql.conf.d/
+      - $PWD/master/conf.d:/etc/mysql/conf.d/
       - $PWD/master/data:/var/lib/mysql
       - $PWD/master/log:/var/log/mysql
       - $PWD/master/backup:/backup
@@ -15,14 +15,14 @@ services:
       - MYSQL_ROOT_PASSWORD=mysql
       - MYSQL_DATABASE=acquia
   mysql-slave:
-    image: "mysql:5.6"
+    image: "mysql:latest"
     platform: linux/amd64
     hostname: "slave"
     container_name: "mysql-slave"
     ports:
-      - "3306"
+      - "3307:3306"
     volumes:
-      - $PWD/slave/conf.d:/etc/mysql/mysql.conf.d/
+      - $PWD/slave/conf.d:/etc/mysql/conf.d/
       - $PWD/slave/data:/var/lib/mysql
       - $PWD/slave/log:/var/log/mysql
       - $PWD/slave/backup:/backup
@@ -31,3 +31,12 @@ services:
       - MYSQL_DATABASE=acquia
     depends_on:
       - mysql-master
+  adminer:
+    image: "adminer:latest"
+    platform: linux/amd64
+    container_name: "adminer"
+    ports:
+      - "8089:8080"
+    depends_on:
+      - mysql-master
+      - mysql-slave

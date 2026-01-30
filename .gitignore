@@ -3,3 +3,5 @@ master/log/*
 master/backup/*
 slave/log/*
 slave/backup/*
+master/data/*
+slave/data/*
